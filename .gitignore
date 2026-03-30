@@ -3,3 +3,11 @@ node_modules/
 .wwebjs_auth/
 .wwebjs_cache/
 credentials.json
+
+# Credenciales de servicio de Google
+deportnet-to-sheets-*.json
+
+# Claude Code
+.claude/
+
+
