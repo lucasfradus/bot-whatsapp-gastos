@@ -310,13 +310,13 @@ const getPaciente = db.prepare(`SELECT * FROM pacientes WHERE id = ?`);
 const getPacienteByUsuario = db.prepare(`SELECT * FROM pacientes WHERE usuario_id = ?`);
 
 const insertPaciente = db.prepare(`
-  INSERT INTO pacientes (nombre, apellido, edad, email, celular)
-  VALUES (@nombre, @apellido, @edad, @email, @celular)
+  INSERT INTO pacientes (nombre, apellido, edad, email, celular, dni)
+  VALUES (@nombre, @apellido, @edad, @email, @celular, @dni)
 `);
 
 const updatePaciente = db.prepare(`
   UPDATE pacientes SET nombre=@nombre, apellido=@apellido, edad=@edad,
-    email=@email, celular=@celular, usuario_id=@usuario_id
+    email=@email, celular=@celular, dni=@dni, usuario_id=@usuario_id
   WHERE id=@id
 `);
 

@@ -31,7 +31,7 @@ export const api = {
   // Pacientes
   getPacientes:   () => req('GET', '/pacientes'),
   getPaciente:    (id) => req('GET', `/pacientes/${id}`),
-  createPaciente: (data) => req('POST', '/pacientes', data),
+  createPaciente: (data) => req('POST', '/pacientes', data), // devuelve { paciente, acceso }
   updatePaciente: (id, data) => req('PUT', `/pacientes/${id}`, data),
   deletePaciente: (id) => req('DELETE', `/pacientes/${id}`),
   crearAcceso:    (id, data) => req('POST', `/pacientes/${id}/crear-acceso`, data),

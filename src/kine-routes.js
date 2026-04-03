@@ -81,14 +81,22 @@ router.get('/pacientes/:id', auth, (req, res) => {
 router.post('/pacientes', auth, soloAdmin, (req, res) => {
   try {
     const p = db.insertPaciente(req.body);
-    // Si viene email, crear usuario paciente automáticamente
-    if (req.body.crear_acceso && req.body.email) {
-      const passDefault = req.body.dni || '123456';
-      const hash = bcrypt.hashSync(passDefault, 10);
-      const usuario = db.insertUsuario({ email: req.body.email, password: hash, rol: 'paciente', nombre: `${req.body.nombre} ${req.body.apellido}` });
-      db.linkUsuarioPaciente(usuario.id, p.id);
+    let acceso = null;
+    // Si tiene email, crear usuario automáticamente
+    if (req.body.email) {
+      const passDefault = req.body.dni || req.body.celular || '123456';
+      const existente = db.getUsuarioByEmail(req.body.email);
+      if (existente) {
+        db.linkUsuarioPaciente(existente.id, p.id);
+        acceso = { email: req.body.email, password: '(ya tenía acceso)' };
+      } else {
+        const hash = bcrypt.hashSync(passDefault, 10);
+        const usuario = db.insertUsuario({ email: req.body.email, password: hash, rol: 'paciente', nombre: `${req.body.nombre} ${req.body.apellido}` });
+        db.linkUsuarioPaciente(usuario.id, p.id);
+        acceso = { email: req.body.email, password: passDefault };
+      }
     }
-    res.status(201).json(db.getPaciente(p.id));
+    res.status(201).json({ paciente: db.getPaciente(p.id), acceso });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
