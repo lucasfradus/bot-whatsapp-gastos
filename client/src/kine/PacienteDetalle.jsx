@@ -39,6 +39,7 @@ function MotivoCard({ motivo, onUpdated }) {
   const [modalEditMotivo, setModalEditMotivo] = useState(false)
   const [formMotivo, setFormMotivo] = useState({ ...motivo, afloja_dia: !!motivo.afloja_dia })
   const [ejercicios, setEjercicios] = useState([])
+  const [busquedaEj, setBusquedaEj] = useState('')
 
   useEffect(() => {
     if (open) {
@@ -87,6 +88,7 @@ function MotivoCard({ motivo, onUpdated }) {
   function abrirNuevaEvol() {
     setFormEvol({ ...EVOL_EMPTY, tecnicas_sesion: [], ejercicios_sesion: [], monto_cobrado: motivo.monto_sesion || '' })
     setEditEvolId(null)
+    setBusquedaEj('')
     setModalEvol(true)
   }
 
@@ -333,28 +335,72 @@ function MotivoCard({ motivo, onUpdated }) {
             </div>
           </label>
 
-          {ejercicios.length > 0 && (
-            <label>Ejercicios asignados
-              <div className="kine-checkbox-group">
-                {ejercicios.map(ej => (
-                  <label key={ej.id} className="kine-checkbox-item">
-                    <input
-                      type="checkbox"
-                      checked={formEvol.ejercicios_sesion?.includes(ej.id)}
-                      onChange={e => {
-                        const current = formEvol.ejercicios_sesion || []
-                        const updated = e.target.checked
-                          ? [...current, ej.id]
-                          : current.filter(id => id !== ej.id)
-                        setFormEvol(f => ({ ...f, ejercicios_sesion: updated }))
-                      }}
-                    />
-                    {ej.nombre}
-                  </label>
-                ))}
+          {/* Ejercicios de gimnasio */}
+          <div className="kine-ej-selector">
+            <div className="kine-ej-selector-titulo">Ejercicios de gimnasio</div>
+
+            {/* Tags de seleccionados */}
+            {(formEvol.ejercicios_sesion?.length > 0) && (
+              <div className="kine-ej-tags-sel">
+                {formEvol.ejercicios_sesion.map(eid => {
+                  const ej = ejercicios.find(e => e.id === eid)
+                  return ej ? (
+                    <span key={eid} className="kine-ej-tag-sel">
+                      {ej.nombre}
+                      <button type="button" onClick={() => setFormEvol(f => ({ ...f, ejercicios_sesion: f.ejercicios_sesion.filter(i => i !== eid) }))}>×</button>
+                    </span>
+                  ) : null
+                })}
               </div>
-            </label>
-          )}
+            )}
+
+            {/* Buscador */}
+            <input
+              className="kine-ej-buscar"
+              placeholder="🔍 Buscar ejercicio..."
+              value={busquedaEj}
+              onChange={e => setBusquedaEj(e.target.value)}
+            />
+
+            {/* Lista filtrada */}
+            <div className="kine-ej-lista-scroll">
+              {(() => {
+                const term = busquedaEj.toLowerCase()
+                const filtrados = ejercicios.filter(ej =>
+                  ej.nombre.toLowerCase().includes(term) ||
+                  (ej.categoria || '').toLowerCase().includes(term)
+                )
+                if (filtrados.length === 0) return <div className="kine-empty-sm">Sin resultados</div>
+
+                // Agrupar por categoría
+                const cats = [...new Set(filtrados.map(e => e.categoria || 'General'))]
+                return cats.map(cat => (
+                  <div key={cat}>
+                    <div className="kine-ej-cat-header">{cat}</div>
+                    {filtrados.filter(e => (e.categoria || 'General') === cat).map(ej => {
+                      const sel = formEvol.ejercicios_sesion?.includes(ej.id)
+                      return (
+                        <label key={ej.id} className={`kine-ej-opcion ${sel ? 'selected' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={!!sel}
+                            onChange={e => {
+                              const cur = formEvol.ejercicios_sesion || []
+                              setFormEvol(f => ({ ...f, ejercicios_sesion: e.target.checked ? [...cur, ej.id] : cur.filter(i => i !== ej.id) }))
+                            }}
+                          />
+                          <div className="kine-ej-opcion-info">
+                            <div className="kine-ej-opcion-nombre">{ej.nombre}</div>
+                            {ej.descripcion && <div className="kine-ej-opcion-desc">{ej.descripcion}</div>}
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                ))
+              })()}
+            </div>
+          </div>
 
           <label>Notas de la sesión<textarea rows={3} value={formEvol.notas} onChange={e => setFormEvol(f => ({ ...f, notas: e.target.value }))} /></label>
           <div className="kine-form-row">

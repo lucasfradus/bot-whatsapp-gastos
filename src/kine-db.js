@@ -180,6 +180,42 @@ if (!adminExiste) {
   console.log('✅ Admin creado: augusto@ciuro.com / admin123');
 }
 
+// ── Seed ejercicios por defecto ───────────────────────────
+
+const hayEjercicios = db.prepare("SELECT COUNT(*) as n FROM ejercicios").get();
+if (hayEjercicios.n === 0) {
+  const seedEj = db.prepare(`INSERT INTO ejercicios (nombre, descripcion, categoria, video_url) VALUES (@nombre, @descripcion, @categoria, @video_url)`);
+  const seedMany = db.transaction((lista) => { for (const e of lista) seedEj.run(e); });
+  seedMany([
+    // Rodilla
+    { nombre: 'Extensión de Rodilla', categoria: 'Rodilla', descripcion: 'Sentado en silla, extender la rodilla hasta quedar con la pierna recta. Sostener 3 seg y bajar lento. 3×15 reps.', video_url: 'https://youtu.be/YyvSfVjQeL0' },
+    { nombre: 'Flexión de Rodilla (acostado)', categoria: 'Rodilla', descripcion: 'Boca abajo, doblar la rodilla llevando el talón hacia los glúteos. Bajar lento. 3×12 reps.', video_url: 'https://youtu.be/1Tq3QdYUuHs' },
+    { nombre: 'Sentadilla con Silla', categoria: 'Rodilla', descripcion: 'De pie frente a la silla, bajar controlando hasta casi sentarse y volver a subir. 3×10 reps.', video_url: 'https://youtu.be/ultWZbUMPL8' },
+    // Cadera
+    { nombre: 'Puente de Glúteos', categoria: 'Cadera', descripcion: 'Boca arriba, rodillas dobladas. Elevar la cadera apretando glúteos, sostener 3 seg y bajar. 3×15 reps.', video_url: 'https://youtu.be/OUgsJ8-Vi0E' },
+    { nombre: 'Abducción de Cadera (acostado)', categoria: 'Cadera', descripcion: 'De lado, elevar la pierna de arriba manteniendo la rodilla recta. Bajar lento. 3×15 reps.', video_url: 'https://youtu.be/kDqklk2FGFA' },
+    { nombre: 'Extensión de Cadera (de pie)', categoria: 'Cadera', descripcion: 'De pie apoyado en la pared, llevar una pierna hacia atrás con rodilla recta. 3×12 reps por lado.', video_url: 'https://youtu.be/OUgsJ8-Vi0E' },
+    { nombre: 'Flexión de Cadera (marcha estática)', categoria: 'Cadera', descripcion: 'De pie, elevar alternadamente las rodillas al pecho como si marchara en el lugar. 3×20 reps.', video_url: 'https://youtu.be/kDqklk2FGFA' },
+    // Hombro
+    { nombre: 'Rotación Externa de Hombro', categoria: 'Hombro', descripcion: 'Codo pegado al cuerpo a 90°, rotar el antebrazo hacia afuera sin mover el codo. 3×15 reps.', video_url: 'https://youtu.be/PtFhZzBXvTM' },
+    { nombre: 'Elevación Frontal de Hombro', categoria: 'Hombro', descripcion: 'Brazo extendido, elevar al frente hasta la altura del hombro. Bajar lento. 3×12 reps.', video_url: 'https://youtu.be/soxrZlIl35U' },
+    { nombre: 'Abducción de Hombro', categoria: 'Hombro', descripcion: 'Brazos a los costados, elevar hasta la altura del hombro. Bajar lento. 3×12 reps.', video_url: 'https://youtu.be/soxrZlIl35U' },
+    // Columna / Core
+    { nombre: 'Plancha Abdominal', categoria: 'Core', descripcion: 'Apoyado en antebrazos y puntillas, cuerpo recto. Sostener 20-30 segundos. 3 series.', video_url: 'https://youtu.be/pSHjTRCQxIw' },
+    { nombre: 'Pájaro-Perro (Bird Dog)', categoria: 'Core', descripcion: 'En cuatro apoyos, extender brazo y pierna opuesta simultáneamente. Sostener 3 seg. 3×10 reps por lado.', video_url: 'https://youtu.be/cc6UVRS7PW4' },
+    { nombre: 'Estiramiento Lumbar (rodillas al pecho)', categoria: 'Core', descripcion: 'Boca arriba, llevar ambas rodillas al pecho abrazándolas. Sostener 30 seg. 3 repeticiones.', video_url: 'https://youtu.be/4BOTvaRaDes' },
+    // Tobillo
+    { nombre: 'Elevación de Talones', categoria: 'Tobillo', descripcion: 'De pie (con apoyo si es necesario), elevarse en puntillas y bajar lento. 3×20 reps.', video_url: 'https://youtu.be/gwLzBJYoWlI' },
+    { nombre: 'Flexión Dorsal de Tobillo', categoria: 'Tobillo', descripcion: 'Sentado, doblar el tobillo llevando la punta del pie hacia la rodilla. Sostener 3 seg. 3×15 reps.', video_url: 'https://youtu.be/gwLzBJYoWlI' },
+    { nombre: 'Círculos de Tobillo', categoria: 'Tobillo', descripcion: 'Sentado, realizar círculos lentos con el tobillo en ambas direcciones. 10 círculos por lado.', video_url: 'https://youtu.be/gwLzBJYoWlI' },
+    // Cervical
+    { nombre: 'Rotación Cervical', categoria: 'Cervical', descripcion: 'Girar la cabeza hacia un lado lentamente, sostener 3 seg y volver al centro. 10 reps por lado.', video_url: 'https://youtu.be/4S5GHhbv9KE' },
+    { nombre: 'Retracción Cervical (Chin Tuck)', categoria: 'Cervical', descripcion: 'Llevar el mentón hacia adentro (doble papada). Sostener 5 seg. 3×10 reps.', video_url: 'https://youtu.be/wQylqaCl8Zo' },
+    { nombre: 'Inclinación Lateral de Cuello', categoria: 'Cervical', descripcion: 'Llevar la oreja hacia el hombro lentamente. Sostener 20 seg por lado. 3 series.', video_url: 'https://youtu.be/4S5GHhbv9KE' },
+  ]);
+  console.log('✅ Ejercicios de ejemplo cargados');
+}
+
 // ── Usuarios ──────────────────────────────────────────────
 
 const getUsuarioByEmail = db.prepare(`SELECT * FROM usuarios WHERE email = ?`);
