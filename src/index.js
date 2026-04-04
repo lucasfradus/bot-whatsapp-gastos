@@ -84,7 +84,8 @@ app.use(express.static(path.join(__dirname, '../client/dist')));
 app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
-const server = app.listen(3000, () => console.log('🌐 Frontend en http://localhost:3000'));
+const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () => console.log(`🌐 Frontend en http://localhost:${PORT}`));
 const wss = new WebSocketServer({ server });
 
 function broadcast(evento) {
