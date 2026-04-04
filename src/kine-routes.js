@@ -7,14 +7,18 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./kine-db');
 
+const uploadsDir = path.join(process.env.DATA_DIR || path.join(__dirname, '..'), 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 const upload = multer({
-  dest: path.join(__dirname, '../uploads/'),
+  dest: uploadsDir,
   limits: { fileSize: 20 * 1024 * 1024 },
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'kine-ciuro-secret-2024';
 
 router.use(express.json());
+
+router.get('/health', (req, res) => res.json({ ok: true }));
 
 // ── Middleware auth ───────────────────────────────────────
 

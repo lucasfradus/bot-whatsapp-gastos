@@ -15,6 +15,8 @@ const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const sheets = require('./sheets');
 const { parseGasto, parseCaja, resolverSocio } = require('./parser');
+const claudeChat = require('./claude-chat');
+const kineRoutes = require('./kine-routes');
 
 const CARPETA_COMPROBANTES = 'C:\\Users\\augus\\OneDrive\\Desktop\\Clic Marzo26\\Comprobantes';
 
@@ -22,6 +24,8 @@ const CARPETA_COMPROBANTES = 'C:\\Users\\augus\\OneDrive\\Desktop\\Clic Marzo26\
 const GROUP_ID = process.env.WHATSAPP_GROUP_ID;
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const GOOGLE_CREDENTIALS = process.env.GOOGLE_CREDENTIALS;
+
+const WEB_CHAT_ID = 'web@websocket';
 
 // Meses en español para el comando !total
 const MESES = {
@@ -50,7 +54,6 @@ client.on('qr', (qr) => {
 client.on('ready', async () => {
   console.log('\n✅ Bot conectado y listo!\n');
 
-  // Imprimir grupos disponibles para encontrar el ID
   if (!GROUP_ID) {
     console.log('⚠️  WHATSAPP_GROUP_ID no configurado. Grupos disponibles:\n');
     const chats = await client.getChats();
@@ -73,141 +76,250 @@ client.on('disconnected', (reason) => {
 // ─── Servidor WebSocket para el frontend ─────────────────────
 
 const app = express();
+app.use('/api/kine', kineRoutes);
+const uploadsDir = path.join(process.env.DATA_DIR || path.join(__dirname, '..'), 'uploads');
+app.use('/uploads', express.static(uploadsDir));
 app.use(express.static(path.join(__dirname, '../client/dist')));
+// SPA fallback
+app.get('/{*splat}', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
 const server = app.listen(3000, () => console.log('🌐 Frontend en http://localhost:3000'));
 const wss = new WebSocketServer({ server });
 
 function broadcast(evento) {
-  const data = JSON.stringify({ ...evento, timestamp: new Date().toISOString() });
+  const data = JSON.stringify({ ...evento, timestamp: evento.timestamp || new Date().toISOString() });
   wss.clients.forEach(ws => {
     if (ws.readyState === ws.OPEN) ws.send(data);
   });
 }
 
-// ─── Estado de confirmaciones pendientes ─────────────────────
-// chatId → { archivos, contactos, caption }
-const confirmacionesPendientes = new Map();
+// Crea un objeto "chat" virtual para mensajes que vienen desde la web
+function createWebChat() {
+  return {
+    id: { _serialized: WEB_CHAT_ID },
+    isGroup: false,
+    sendMessage: async (text) => {
+      broadcast({ tipo: 'bot_respuesta', texto: text });
+    },
+  };
+}
 
-// ─── Handler principal de mensajes ───────────────────────────
+// Escuchar mensajes del frontend (confirmaciones, mensajes web y chat Claude)
+wss.on('connection', (ws) => {
+  ws.on('close', () => {
+    claudeChat.limpiarConversacion(ws);
+  });
+
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.tipo === 'confirmacion') {
+        resolverConfirmacionFrontend(msg.id, msg.respuesta);
+      } else if (msg.tipo === 'claude_message') {
+        const sendFn = (evento) => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ ...evento, timestamp: new Date().toISOString() }));
+          }
+        };
+        claudeChat.procesarMensaje(ws, msg.texto, sendFn).catch(console.error);
+      } else if (msg.tipo === 'claude_limpiar') {
+        claudeChat.limpiarConversacion(ws);
+      } else if (msg.tipo === 'mensaje_web') {
+        const texto = msg.texto?.trim();
+        if (!texto) return;
+
+        const webChat = createWebChat();
+
+        // Verificar si hay confirmación pendiente para la web
+        if (/^(sí|si|dale|ok|yes|confirmar|confirma|enviar|enviá|va|listo)\b/i.test(texto)) {
+          if (resolverConfirmacionWhatsapp(WEB_CHAT_ID, true)) return;
+        }
+        if (/^(no|cancelar|cancela|parar|para)\b/i.test(texto)) {
+          if (resolverConfirmacionWhatsapp(WEB_CHAT_ID, false)) return;
+        }
+
+        // Agregar "Mosca" si el usuario no lo escribió
+        const textoFull = /^mosca\b/i.test(texto) ? texto : `Mosca ${texto}`;
+        procesarMensaje(textoFull, 'Web', webChat).catch(console.error);
+      }
+    } catch (e) { /* ignorar mensajes inválidos */ }
+  });
+});
+
+// ─── Estado de confirmaciones pendientes ─────────────────────
+const confirmacionesPendientes = new Map();
+let confirmacionCounter = 0;
+
+function esperarConfirmacion(chatId, datos) {
+  const id = ++confirmacionCounter;
+  return new Promise((resolve) => {
+    confirmacionesPendientes.set(id, { resolve, chatId, datos });
+  });
+}
+
+function resolverConfirmacionFrontend(id, respuesta) {
+  const pendiente = confirmacionesPendientes.get(id);
+  if (pendiente) {
+    confirmacionesPendientes.delete(id);
+    pendiente.resolve(respuesta === 'si');
+  }
+}
+
+function resolverConfirmacionWhatsapp(chatId, confirmado) {
+  for (const [id, pendiente] of confirmacionesPendientes) {
+    if (pendiente.chatId === chatId) {
+      confirmacionesPendientes.delete(id);
+      broadcast({ tipo: 'confirmacion_resuelta', id, confirmado });
+      pendiente.resolve(confirmado);
+      return true;
+    }
+  }
+  return false;
+}
+
+// ─── Procesamiento principal de mensajes ─────────────────────
+
+async function procesarMensaje(texto, socio, chat) {
+  const cuerpo = texto.replace(/^mosca\s*/i, '').trim();
+  if (!cuerpo) return;
+
+  // Procesar comandos
+  if (cuerpo.startsWith('!')) {
+    await handleComando(chat, cuerpo, socio);
+    return;
+  }
+
+  // Detectar intención de enviar comprobantes
+  const quiereEnviar = /envi/i.test(cuerpo);
+  const mencionaComprobante = /comprobante|transfer|pago|archivo/i.test(cuerpo);
+  const mencionaTodos = /\btodos\b|\btodo\b/i.test(cuerpo);
+
+  if (quiereEnviar && mencionaComprobante) {
+    const matchMensaje = cuerpo.match(/(?:con (?:el )?mensaje|mensaje|diciendo|que diga)[:\s]+["""''](.+?)["""'']/i)
+      || cuerpo.match(/(?:con (?:el )?mensaje|mensaje|diciendo|que diga)[:\s]+(.+)$/i);
+    const caption = matchMensaje ? matchMensaje[1].trim() : null;
+
+    if (mencionaTodos) {
+      await cmdEnviarComprobantes(chat, null, caption);
+      return;
+    }
+
+    let archivosDisponibles = [];
+    if (fs.existsSync(CARPETA_COMPROBANTES)) {
+      archivosDisponibles = fs.readdirSync(CARPETA_COMPROBANTES)
+        .filter(f => ['.pdf', '.jpg', '.jpeg', '.png'].includes(path.extname(f).toLowerCase()))
+        .map(f => path.basename(f, path.extname(f)).trim());
+    }
+
+    const cuerpoNorm = cuerpo.toLowerCase();
+    const nombresEncontrados = archivosDisponibles.filter(nombre => {
+      const palabras = nombre.toLowerCase().split(/\s+/);
+      const coincidencias = palabras.filter(p => p.length > 2 && cuerpoNorm.includes(p));
+      return coincidencias.length >= 2;
+    });
+
+    if (nombresEncontrados.length > 0) {
+      await cmdEnviarComprobantes(chat, nombresEncontrados, caption);
+    } else {
+      const lista = archivosDisponibles.length > 0
+        ? `\n\nComprobantes disponibles:\n${archivosDisponibles.map(n => `  • ${n}`).join('\n')}`
+        : '';
+      await chat.sendMessage(`¿A quién le envío el comprobante?${lista}`);
+    }
+    return;
+  }
+
+  // Detectar si es para Mov de Caja o Gastos
+  if (/\bmov(?:imiento)?\s+de\s+caja\b/i.test(cuerpo)) {
+    const mov = parseCaja(cuerpo);
+    if (mov) {
+      const id = ++confirmacionCounter;
+      broadcast({ tipo: 'mov_caja', estado: 'pendiente', id, datos: mov, socio });
+      await chat.sendMessage(
+        `📋 Mov de Caja a registrar:\n` +
+        `${mov.ingresoEgreso === 'Ingreso' ? '📈' : '📉'} ${mov.ingresoEgreso || '—'}\n` +
+        `💰 $${formatMonto(mov.monto)}\n` +
+        `📝 ${mov.item}\n` +
+        (mov.caja  ? `🗂️ Caja: ${mov.caja}\n`  : '') +
+        (mov.sede  ? `📍 Sede: ${mov.sede}\n`   : '') +
+        `\n¿Confirmo? (sí / no)`
+      );
+      const confirmado = await new Promise((resolve) => {
+        confirmacionesPendientes.set(id, { resolve, chatId: chat.id._serialized, datos: mov });
+      });
+      if (confirmado) {
+        await sheets.registrarMovCaja(mov);
+        broadcast({ tipo: 'mov_caja', estado: 'registrado', id, datos: mov, socio });
+        await chat.sendMessage(`✅ Mov de Caja registrado.`);
+      } else {
+        broadcast({ tipo: 'mov_caja', estado: 'cancelado', id });
+        await chat.sendMessage(`❌ Cancelado.`);
+      }
+    } else {
+      await chat.sendMessage(`❓ No entendí el movimiento. Ejemplo:\nMosca mov de caja egreso 5000 Caja Oficina Central nafta`);
+    }
+    return;
+  }
+
+  // Intentar parsear como gasto
+  const gasto = parseGasto(cuerpo, socio);
+  if (gasto) {
+    const id = ++confirmacionCounter;
+    broadcast({ tipo: 'gasto', estado: 'pendiente', id, datos: gasto });
+    await chat.sendMessage(
+      `📋 Gasto a registrar:\n` +
+      `👤 ${gasto.socio}\n` +
+      `📝 ${gasto.descripcion}\n` +
+      `💰 $${formatMonto(gasto.monto)}\n` +
+      `\n¿Confirmo? (sí / no)`
+    );
+    const confirmado = await new Promise((resolve) => {
+      confirmacionesPendientes.set(id, { resolve, chatId: chat.id._serialized, datos: gasto });
+    });
+    if (confirmado) {
+      const gastoId = await sheets.registrarGasto(gasto.socio, gasto.descripcion, gasto.monto);
+      broadcast({ tipo: 'gasto', estado: 'registrado', id, datos: { ...gasto, gastoId } });
+      await chat.sendMessage(`✅ Registrado gasto #${gastoId}.`);
+    } else {
+      broadcast({ tipo: 'gasto', estado: 'cancelado', id });
+      await chat.sendMessage(`❌ Cancelado.`);
+    }
+  } else {
+    await chat.sendMessage(`❓ No entendí el monto. Ejemplo: Mosca almuerzo $150`);
+  }
+}
+
+// ─── Handler principal de mensajes WhatsApp ──────────────────
 
 client.on('message', async (msg) => {
   try {
-    // Responder en el grupo configurado O en chats individuales
     const chat = await msg.getChat();
     if (chat.isGroup && GROUP_ID && chat.id._serialized !== GROUP_ID) return;
 
     const texto = msg.body.trim();
     if (!texto) return;
 
-    // Verificar si hay una confirmación pendiente para este chat
-    if (confirmacionesPendientes.has(chat.id._serialized)) {
-      const pendiente = confirmacionesPendientes.get(chat.id._serialized);
-      if (/^(sí|si|dale|ok|yes|confirmar|confirma|enviar|enviá|va|listo)\b/i.test(texto)) {
-        confirmacionesPendientes.delete(chat.id._serialized);
-        await ejecutarEnvios(chat, pendiente.archivos, pendiente.contactos, pendiente.caption);
-      } else if (/^(no|cancelar|cancela|parar|para)\b/i.test(texto)) {
-        confirmacionesPendientes.delete(chat.id._serialized);
-        await chat.sendMessage('❌ Envío cancelado.');
+    // Verificar si hay una confirmación pendiente para este chat (desde WhatsApp)
+    if (/^(sí|si|dale|ok|yes|confirmar|confirma|enviar|enviá|va|listo)\b/i.test(texto)) {
+      if (resolverConfirmacionWhatsapp(chat.id._serialized, true)) {
+        await chat.sendMessage('✅ Confirmado.');
+        return;
       }
-      return;
+    }
+    if (/^(no|cancelar|cancela|parar|para)\b/i.test(texto)) {
+      if (resolverConfirmacionWhatsapp(chat.id._serialized, false)) {
+        await chat.sendMessage('❌ Cancelado.');
+        return;
+      }
     }
 
-    // Solo responder si el mensaje empieza con "Mosca" (case insensitive)
     if (!/^mosca\b/i.test(texto)) return;
 
-    // Obtener nombre del contacto
     const contact = await msg.getContact();
     const socio = contact.pushname || contact.name || msg.author || 'Desconocido';
 
-    // Quitar "Mosca" del inicio y procesar lo que sigue
-    const cuerpo = texto.replace(/^mosca\s*/i, '').trim();
-    if (!cuerpo) return;
-
-    // Procesar comandos
-    if (cuerpo.startsWith('!')) {
-      await handleComando(chat, cuerpo, socio);
-      return;
-    }
-
-    // Detectar intención de enviar comprobantes
-    const quiereEnviar = /envi/i.test(cuerpo);
-    const mencionaComprobante = /comprobante|transfer|pago|archivo/i.test(cuerpo);
-    const mencionaTodos = /\btodos\b|\btodo\b/i.test(cuerpo);
-
-    if (quiereEnviar && mencionaComprobante) {
-      // Extraer mensaje personalizado: "con el mensaje ..." o "diciendo ..." (con o sin comillas)
-      const matchMensaje = cuerpo.match(/(?:con (?:el )?mensaje|mensaje|diciendo|que diga)[:\s]+["""''](.+?)["""'']/i)
-        || cuerpo.match(/(?:con (?:el )?mensaje|mensaje|diciendo|que diga)[:\s]+(.+)$/i);
-      const caption = matchMensaje ? matchMensaje[1].trim() : null;
-
-      if (mencionaTodos) {
-        await cmdEnviarComprobantes(chat, null, caption);
-        return;
-      }
-
-      // Leer nombres disponibles en la carpeta
-      let archivosDisponibles = [];
-      if (fs.existsSync(CARPETA_COMPROBANTES)) {
-        archivosDisponibles = fs.readdirSync(CARPETA_COMPROBANTES)
-          .filter(f => ['.pdf', '.jpg', '.jpeg', '.png'].includes(path.extname(f).toLowerCase()))
-          .map(f => path.basename(f, path.extname(f)).trim());
-      }
-
-      // Buscar qué nombres del mensaje coinciden con archivos disponibles
-      const cuerpoNorm = cuerpo.toLowerCase();
-      const nombresEncontrados = archivosDisponibles.filter(nombre => {
-        const palabras = nombre.toLowerCase().split(/\s+/);
-        const coincidencias = palabras.filter(p => p.length > 2 && cuerpoNorm.includes(p));
-        return coincidencias.length >= 2;
-      });
-
-      if (nombresEncontrados.length > 0) {
-        await cmdEnviarComprobantes(chat, nombresEncontrados, caption);
-      } else {
-        // No encontró nombres, preguntar a quién
-        const lista = archivosDisponibles.length > 0
-          ? `\n\nComprobantes disponibles:\n${archivosDisponibles.map(n => `  • ${n}`).join('\n')}`
-          : '';
-        await chat.sendMessage(`¿A quién le envío el comprobante?${lista}`);
-      }
-      return;
-    }
-
-    // Detectar si es para Mov de Caja o Gastos
-    if (/\bmov(?:imiento)?\s+de\s+caja\b/i.test(cuerpo)) {
-      const mov = parseCaja(cuerpo);
-      if (mov) {
-        broadcast({ tipo: 'mov_caja', estado: 'registrado', datos: mov, socio });
-        await sheets.registrarMovCaja(mov);
-        await chat.sendMessage(
-          `✅ Mov de Caja registrado\n` +
-          `${mov.ingresoEgreso === 'Ingreso' ? '📈' : '📉'} ${mov.ingresoEgreso || '—'}\n` +
-          `💰 $${formatMonto(mov.monto)}\n` +
-          `📝 ${mov.item}\n` +
-          (mov.caja  ? `🗂️ Caja: ${mov.caja}\n`  : '') +
-          (mov.sede  ? `📍 Sede: ${mov.sede}\n`   : '') +
-          (mov.notas ? `📌 Notas: ${mov.notas}`   : '')
-        );
-      } else {
-        await chat.sendMessage(`❓ No entendí el movimiento. Ejemplo:\nMosca mov de caja egreso 5000 Caja Oficina Central nafta`);
-      }
-      return;
-    }
-
-    // Intentar parsear como gasto
-    const gasto = parseGasto(cuerpo, socio);
-    if (gasto) {
-      broadcast({ tipo: 'gasto', estado: 'registrado', datos: gasto });
-      const id = await sheets.registrarGasto(gasto.socio, gasto.descripcion, gasto.monto);
-      await chat.sendMessage(
-        `✅ Registrado gasto #${id}\n` +
-        `👤 ${gasto.socio}\n` +
-        `📝 ${gasto.descripcion}\n` +
-        `💰 $${formatMonto(gasto.monto)}`
-      );
-    } else {
-      await chat.sendMessage(`❓ No entendí el monto. Ejemplo: Mosca almuerzo $150`);
-    }
+    await procesarMensaje(texto, socio, chat);
   } catch (err) {
     console.error('[Bot] Error procesando mensaje:', err.message);
   }
@@ -247,7 +359,6 @@ async function handleComando(chat, texto, socio) {
       break;
 
     default:
-      // Comando no reconocido — no hacer nada
       break;
   }
 }
@@ -424,7 +535,6 @@ async function cmdEnviarComprobantes(chat, nombresEspecificos = null, caption = 
 
   const { listos, noEncontrados, duplicados } = await resolverContactos(archivos);
 
-  // Armar preview
   let preview = `📋 *Esto es lo que voy a enviar:*\n\n`;
 
   if (listos.length > 0) {
@@ -459,17 +569,36 @@ async function cmdEnviarComprobantes(chat, nombresEspecificos = null, caption = 
   preview += `¿Confirmo el envío? (sí / no)`;
   await chat.sendMessage(preview);
 
+  const id = ++confirmacionCounter;
   broadcast({
     tipo: 'comprobantes_preview',
     estado: 'esperando_confirmacion',
-    listos: listos.map(l => ({ archivo: l.archivo, contacto: l.contacto.name })),
+    id,
+    listos: listos.map(l => {
+      const filePath = path.join(CARPETA_COMPROBANTES, l.archivo);
+      const base64 = fs.readFileSync(filePath).toString('base64');
+      return {
+        archivo: l.archivo,
+        contacto: l.contacto.name,
+        telefono: l.contacto.id.user,
+        imagen: `data:image/jpeg;base64,${base64}`,
+      };
+    }),
     noEncontrados,
     duplicados: duplicados.map(d => d.archivo),
     caption,
   });
 
-  // Guardar estado pendiente
-  confirmacionesPendientes.set(chat.id._serialized, { archivos: listos.map(l => l.archivo), contactos: listos.map(l => l.contacto), caption });
+  const confirmado = await new Promise((resolve) => {
+    confirmacionesPendientes.set(id, { resolve, chatId: chat.id._serialized });
+  });
+
+  if (confirmado) {
+    await ejecutarEnvios(chat, listos.map(l => l.archivo), listos.map(l => l.contacto), caption);
+  } else {
+    broadcast({ tipo: 'comprobantes_preview', estado: 'cancelado', id });
+    await chat.sendMessage('❌ Envío cancelado.');
+  }
 }
 
 async function ejecutarEnvios(chat, archivos, contactos, caption) {
@@ -519,19 +648,15 @@ function formatMonto(num) {
 // ─── Arranque ────────────────────────────────────────────────
 
 async function main() {
-  console.log('🚀 Iniciando Bot de Gastos...\n');
+  console.log('🚀 Iniciando...\n');
 
-  if (!SHEET_ID || !GOOGLE_CREDENTIALS) {
-    console.error('❌ Faltan variables de entorno. Revisá el archivo .env');
-    console.error('   Necesitás: GOOGLE_SHEET_ID y GOOGLE_CREDENTIALS');
-    process.exit(1);
+  if (SHEET_ID && GOOGLE_CREDENTIALS) {
+    await sheets.init(SHEET_ID, GOOGLE_CREDENTIALS);
+    client.initialize();
+  } else {
+    console.log('⚠️  GOOGLE_SHEET_ID o GOOGLE_CREDENTIALS no configurados. Bot de WhatsApp desactivado.');
+    console.log('✅ Sistema de Kinesiología activo en http://localhost:3000\n');
   }
-
-  // Conectar a Google Sheets
-  await sheets.init(SHEET_ID, GOOGLE_CREDENTIALS);
-
-  // Iniciar cliente de WhatsApp
-  client.initialize();
 }
 
 main().catch(err => {

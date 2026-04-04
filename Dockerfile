@@ -14,12 +14,25 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
+# Instalar dependencias del servidor
 COPY package*.json ./
 RUN npm ci --omit=dev
 
+# Instalar dependencias y buildear el frontend
+COPY client/package*.json ./client/
+RUN cd client && npm ci
+COPY client/ ./client/
+RUN cd client && npm run build
+
+# Copiar el resto del código
 COPY . .
 
-# Directorio para sesión persistente de WhatsApp (montar volumen aquí)
+# Directorio para datos persistentes (montar volumen aquí en Railway)
+RUN mkdir -p /data/uploads
 RUN mkdir -p /app/.wwebjs_auth
+
+ENV DATA_DIR=/data
+
+EXPOSE 3000
 
 CMD ["npm", "start"]
