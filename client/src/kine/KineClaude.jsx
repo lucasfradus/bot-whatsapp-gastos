@@ -54,7 +54,8 @@ export default function KineClaude() {
     let shouldReconnect = true
 
     function connect() {
-      ws = new WebSocket(`ws://${window.location.host}`)
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      ws = new WebSocket(`${wsProtocol}//${window.location.host}`)
       wsRef.current = ws
       ws.onopen = () => setConectado(true)
       ws.onclose = () => {
