@@ -2189,3 +2189,96 @@
   background: #f0fdf4;
   color: var(--kine-ok);
 }
+
+/* ── Portal: overlay de deuda ─────────────────────────────── */
+
+.portal-contenido-bloqueado {
+  filter: blur(6px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.portal-deuda-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 20, 40, 0.55);
+  backdrop-filter: blur(2px);
+  padding: 1.5rem;
+}
+
+.portal-deuda-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 2rem 1.75rem;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+
+.portal-deuda-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.portal-deuda-titulo {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--kine-text);
+  margin: 0 0 0.6rem;
+}
+
+.portal-deuda-texto {
+  font-size: 0.95rem;
+  color: var(--kine-text-2);
+  margin: 0 0 1.25rem;
+}
+
+.portal-deuda-alias-box {
+  background: var(--kine-accent-bg);
+  border: 1.5px solid var(--kine-accent);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.portal-deuda-alias-label {
+  font-size: 11px;
+  color: var(--kine-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.portal-deuda-alias {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--kine-accent);
+  letter-spacing: 0.02em;
+}
+
+.portal-deuda-sub {
+  font-size: 0.82rem;
+  color: var(--kine-text-3);
+  margin: 0 0 1.25rem;
+}
+
+.portal-deuda-btn {
+  display: block;
+  background: #25d366;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.portal-deuda-btn:hover {
+  background: #1ebe5c;
+}
