@@ -36,6 +36,9 @@ RUN mkdir -p /app/.wwebjs_auth
 
 ENV DATA_DIR=/data
 
+# Marcar /data como volumen persistente
+VOLUME ["/data"]
+
 EXPOSE 3000
 
 CMD ["npm", "start"]
