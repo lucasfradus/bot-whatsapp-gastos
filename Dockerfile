@@ -5,6 +5,9 @@ RUN apt-get update && apt-get install -y \
     chromium \
     fonts-ipafont-gothic \
     fonts-freefont-ttf \
+    python3 \
+    make \
+    g++ \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
