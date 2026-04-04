@@ -80,6 +80,8 @@ app.use('/api/kine', kineRoutes);
 const uploadsDir = path.join(process.env.DATA_DIR || path.join(__dirname, '..'), 'uploads');
 app.use('/uploads', express.static(uploadsDir));
 app.use(express.static(path.join(__dirname, '../client/dist')));
+// Redirigir raíz a /kine
+app.get('/', (req, res) => res.redirect('/kine'));
 // SPA fallback
 app.get('/{*splat}', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
