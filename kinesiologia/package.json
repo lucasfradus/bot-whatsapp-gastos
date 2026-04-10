@@ -1,0 +1,25 @@
+{
+  "name": "kinesiologia-consultorio",
+  "version": "1.0.0",
+  "description": "Sistema de gestión para consultorio de kinesiología",
+  "main": "kine-db.js",
+  "scripts": {
+    "start": "node kine-db.js",
+    "dev": "node --watch kine-db.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.8.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.1.1",
+    "pdf-poppler": "^0.2.3",
+    "sharp": "^0.34.5",
+    "ws": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
